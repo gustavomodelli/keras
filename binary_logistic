@@ -1,0 +1,53 @@
+library(tidyverse)
+library(tidymodels)
+library(keras)
+library(themis)
+
+##Load Data
+estonia <- read_csv('estonia-passenger-list.csv')
+
+estonia %>% str()
+
+
+##split
+set.seed(123)
+split <- initial_split(estonia, strata = 'Survived')
+estonia_train <- training(split)
+estonia_test <- testing(split)
+
+
+# recipe
+rec <- recipe(Survived ~ . , data = estonia_train) %>% 
+  step_rm(PassengerId, Country, Firstname, Lastname) %>% 
+  step_dummy(all_nominal(), one_hot = TRUE) %>% 
+  step_normalize(all_predictors(), -Survived)
+
+estonia_trainX <- rec %>% prep() %>% juice(composition = 'matrix', all_predictors())
+estonia_testX <- rec %>% prep() %>% bake(composition = 'matrix', new_data = estonia_test, all_predictors())
+
+estonia_trainY <- estonia_train$Survived
+estonia_testY <- estonia_test$Survived
+
+## Binary model
+model <- keras_model_sequential() %>% 
+  layer_dense(units = 28, activation = 'relu', input_shape = c(5)) %>% 
+  layer_dense(units = 1, activation = 'sigmoid')
+
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+
+
+model %>% fit(
+  x = estonia_trainX, ##matrix
+  y = estonia_trainY,  ## a vector
+  epoch = 200,
+  batch = 62,
+  validation_split = 0.2
+)
+
+model %>% evaluate(estonia_testX, estonia_testY)
+
+preditos <- predict_classes(model, estonia_testX)
