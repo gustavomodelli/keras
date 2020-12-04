@@ -1,0 +1,78 @@
+library(tidyverse)
+library(tidymodels)
+library(keras)
+
+##Load Data
+cardio <- read_csv('cardiotocographic.csv')
+cardio %>%  str()
+
+cardio <- cardio %>% 
+  mutate(NSP = NSP-1)
+
+## First split the data in train and test
+set.seed(123)
+split <- initial_split(cardio, strata = 'NSP')
+cardio_train <- training(split)
+cardio_test <- testing(split)
+
+## Preprocess and generate a matrix
+
+rec <- recipe(NSP ~ . , data = cardio_train) %>% 
+  step_normalize(all_numeric(), -NSP)
+
+
+cardio_traink <- rec %>% prep() %>% juice(composition = 'matrix')
+cardio_testk <- rec %>% prep() %>% bake(new_data = cardio_test, composition = 'matrix')
+
+## remove names
+colnames(cardio_traink) <- NULL
+colnames(cardio_testk) <- NULL
+
+## vars X and Y to keras
+
+cardio_trainX <- cardio_traink[, 1:21]
+cardio_trainY <- cardio_traink[, 22]
+##conver to categoriacal
+cardio_trainY <- to_categorical(cardio_trainY)
+
+cardio_testX <- cardio_testk[, 1:21]
+cardio_testY <- cardio_testk[, 22]
+cardio_testY <- to_categorical(cardio_testY)
+
+
+## generate a model sequential keras
+
+model <- keras_model_sequential() %>% 
+  layer_dense(units = 50, activation = 'relu', input_shape = 21) %>% 
+  layer_dense(units = 3, activation = 'softmax')
+  
+## compile the model
+
+model %>% compile(
+  loss = 'categorical_crossentropy',  ##multiclass
+  optimizer = 'adam',
+  metrics = 'accuracy'
+)
+
+
+## fit the model
+
+model %>% fit(
+  x = cardio_trainX,
+  y = cardio_trainY,
+  epoch = 200,
+  batch = 32,
+  validation_split = 0.2
+)
+
+## Test results
+
+model %>% evaluate(cardio_testX, cardio_testY)
+
+
+## predict results
+
+predict_proba(model, cardio_testX)
+classes_predicr <- predict_classes(model, cardio_testX)
+
+table(classes_predicr, cardio_test$NSP)
