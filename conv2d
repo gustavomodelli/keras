@@ -1,0 +1,91 @@
+library(tidyverse) # metapackage of all tidyverse packages
+library(keras)
+
+
+##Directories
+##We have two different subdirectoris: cat/dog
+set_train_dir <- c('../input/cats-vs-dogs-1000/dogs_cats_sample_1000/dogs_cats_sample_1000/train')
+set_test_dir <- c('../input/cats-vs-dogs-1000/dogs_cats_sample_1000/dogs_cats_sample_1000/valid')
+
+##Read Images
+train_datagen <- image_data_generator(rescale = 1/255)  ##rescale 0/1
+validation_datagen <- image_data_generator(rescale = 1/255)
+
+##Few data we have to generate noise
+datagen <- image_data_generator(
+rescale = 1/255, ##rescale
+rotation_range = 40,
+width_shift_range = 0.2,
+height_shift_range = 0.2,
+shear_range = 0.2,
+zoom_range = 0.2,
+horizontal_flip = TRUE,
+fill_mode = "nearest"
+)
+
+##Load Images
+train_generator <- flow_images_from_directory(
+set_train_dir,
+train_datagen,
+classes = c('dog',cat'), ##or automaticaly if NULL
+target_size = c(150, 150),  ##Output format
+batch_size = 20,
+class_mode = "binary" ##Binary Problem Others: "categorical", "binary", "sparse"
+)
+
+
+validation_generator <- flow_images_from_directory(
+set_test_dir,
+validation_datagen,
+classes = c('dog',cat'),
+target_size = c(150, 150),
+batch_size = 20,
+class_mode = "binary"
+)
+
+
+##Keras model 2d
+model <- keras_model_sequential() %>%
+layer_conv_2d(filters = 32, kernel_size = c(3, 3), activation = "relu",
+input_shape = c(150, 150, 3)) %>%
+layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+layer_conv_2d(filters = 64, kernel_size = c(3, 3), activation = "relu") %>%
+layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>%
+layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>%
+layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+layer_flatten() %>%
+layer_dense(units = 512, activation = "relu") %>%
+layer_dense(units = 1, activation = "sigmoid")  ## sigmoid and 1 neuron by logistreg
+
+##if you use min flow image class_mode = 'categorical' you have to use units = 2 and activation = 'softmax'
+##class_mode ='binary'you have units = 1 and activation = "sigmoid"
+
+
+## Compile
+model %>% compile(
+loss = "binary_crossentropy",  ##or "categorical_crossentropy" to categorical
+optimizer = optimizer_rmsprop(lr = 1e-4),
+metrics = c("acc")
+)
+
+## Fit
+history <- model %>% fit_generator(
+train_generator,
+steps_per_epoch = 100,
+epochs = 30,
+validation_data = validation_generator,  ##Alternative: validation_split = 0.2
+validation_steps = 50
+)
+
+##plot
+plot(history)
+
+summary(history)
+
+##Predictions
+preds = evaluate_generator(model,
+                          validation_generator,
+                          steps = length(validation_generator))
+preds
