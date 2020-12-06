@@ -1,0 +1,125 @@
+# This R environment comes with many helpful analytics packages installed
+# It is defined by the kaggle/rstats Docker image: https://github.com/kaggle/docker-rstats
+# For example, here's a helpful package to load
+
+library(tidyverse) # metapackage of all tidyverse packages
+library(keras)
+library(recipes)
+library(rsample)
+
+labels <- read_csv('../input/cassava-leaf-disease-classification/train.csv')
+labels %>% str()
+
+labels <- labels %>%
+mutate(label = case_when(
+   label == 0 ~ 'CBB',
+   label == 1 ~ 'CBSD',
+   label == 2 ~ 'CGM',
+   label == 3 ~ 'CMD',
+   label == 4 ~ 'Healthy'
+))
+
+**On-hot encode label**
+
+rec <- recipe(~ . , data = labels)%>%
+ step_dummy(label, one_hot = TRUE)
+
+label_on_hot <- rec %>% prep() %>% juice()
+head(label_on_hot)
+
+**Test model in a small sample**
+
+sample_small <- sample_n(label_on_hot, 2000)
+
+**Train and Test**
+
+split <- initial_split(sample_small, prop = 0.8)
+train_image <- training(split)
+test_image <- testing(split)
+
+
+
+
+dim(split)
+
+**Read the images on Keras**
+
+set_train_dir <- c('../input/cassava-leaf-disease-classification/train_images')
+
+#data augmentation
+datagen <- image_data_generator(
+  rescale = 1/255,
+  rotation_range = 40,
+  width_shift_range = 0.2,
+  height_shift_range = 0.2,
+  shear_range = 0.2,
+  zoom_range = 0.5,
+  horizontal_flip = TRUE,
+  fill_mode = "reflect"
+)
+
+batch_size = 64
+
+train_generator <- flow_images_from_dataframe(dataframe = train_image, 
+                                              directory = set_train_dir,
+                                              generator = datagen,
+                                              class_mode = "other",
+                                              x_col = "image_id",
+                                              y_col = c("label_CBB","label_CBSD", "label_CGM", "label_CMD", "label_Healthy"),
+                                              target_size = c(448, 448),
+                                              batch_size = batch_size)
+
+validation_generator <- flow_images_from_dataframe(dataframe = test_image, 
+                                              directory = set_train_dir,
+                                              generator = image_data_generator(rescale = 1/255),
+                                              class_mode = "other",
+                                              x_col = "image_id",
+                                              y_col = c("label_CBB","label_CBSD", "label_CGM", "label_CMD", "label_Healthy"),
+                                              target_size = c(448, 448),
+                                              batch_size = batch_size)
+
+**The keras model**
+
+
+
+##Keras model 2d
+model <- keras_model_sequential() %>%
+layer_conv_2d(filters = 32, kernel_size = c(3, 3), activation = "relu",
+input_shape = c(448, 448, 3)) %>%
+layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+layer_conv_2d(filters = 64, kernel_size = c(3, 3), activation = "relu") %>%
+layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>%
+layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>%
+layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+layer_flatten() %>%
+layer_dense(units = 512, activation = "relu") %>%
+layer_dense(units = 5, activation = "softmax")
+
+**Compile**
+
+model %>% compile(
+    optimizer = optimizer_rmsprop(lr=1e-5),
+    loss = "categorical_crossentropy",
+    metrics = "accuracy"
+)
+
+
+history <- model %>% fit_generator(
+    train_generator,
+    steps_per_epoch = 100, #nrow(y_train) / batch_size,
+    epochs = 100,
+    validation_data = validation_generator,
+    validation_step = 50,
+    verbose = 1
+)
+
+plot(history)
+
+history
+
+preds = evaluate_generator(model,
+                          validation_generator,
+                          steps = length(validation_generator))
+preds
