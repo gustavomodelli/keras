@@ -1,0 +1,93 @@
+library(tidymodels)
+library(tidyverse)
+library(keras)
+library(themis)
+library(embed)
+
+##Set path
+setwd('C:/Users/transplante.HCFMB/Documents/')
+
+
+#Data
+nss <- read_csv('nassCDS.csv')
+
+nss %>% str()
+
+nss <- nss %>% drop_na()
+nss <- nss %>% 
+  mutate(frontal = factor(frontal, labels = c('no','yes')),
+         deploy = factor(deploy, labels = c('no','yes')),
+         dead = ifelse(dead == 'dead', 0, 1)
+         ) %>% 
+  select(-X1, -injSeverity, -caseid)
+
+
+## Model Data with Keras without tidymodels
+
+split <- initial_split(nss, strata = 'dead')
+nss_train <- training(split)
+nss_test <- testing(split)
+
+
+## -- Recipe ---------------------------
+
+rec_keras <- recipe(dead ~ . , data = nss_train) %>% 
+  step_BoxCox(all_numeric(), -all_outcomes()) %>%
+  step_dummy(all_nominal(), -all_outcomes(), one_hot = TRUE) %>% 
+  step_normalize(all_predictors())
+
+
+## -- Model ----------------------------
+
+
+model <- mlp(mode = 'classification', epochs = 30, dropout = 0.1) %>% 
+  set_engine('keras') 
+
+## --- Recipe ---------------------------
+
+keras_work <- workflow() %>% 
+  add_recipe(rec_keras) %>% 
+  add_model(model)
+
+## -- Fit ------------------------------
+
+results <- keras_work %>% 
+  last_fit(split)
+
+
+results %>% collect_predictions() %>% 
+  conf_mat(truth = dead, estimate = .pred_class)
+
+
+## - Using base keras
+
+nss_trainX <- rec_keras %>% prep() %>% juice(composition = 'matrix', all_predictors())
+nss_trainY <- rec_keras %>% prep() %>% juice(all_outcomes(), composition = 'matrix')
+
+
+nss_testX <- rec_keras %>% prep() %>% bake(new_data = nss_test, all_predictors(), composition = 'matrix')
+nss_testY <- rec_keras %>% prep() %>% bake(new_data = nss_test, all_outcomes(), composition = 'matrix')
+
+model <- keras_model_sequential() %>% 
+  layer_dense(units = 28, activation = 'relu', input_shape = c(24)) %>% 
+  layer_dense(units = 1, activation = 'sigmoid')
+
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+
+
+model %>% fit(
+  x = nss_trainX, ##matrix
+  y = nss_trainY,  ## a vector
+  epoch = 100,
+  batch = 62,
+  validation_split = 0.2
+)
+
+evaluate(model, nss_testX, nss_testY)
+
+##Predict
+predito <- predict_classes(model, nss_testX)
