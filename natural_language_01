@@ -1,0 +1,70 @@
+# This R environment comes with many helpful analytics packages installed
+# It is defined by the kaggle/rstats Docker image: https://github.com/kaggle/docker-rstats
+# For example, here's a helpful package to load
+
+library(tidyverse) # metapackage of all tidyverse packages
+library(recipes)
+library(rsample)
+library(keras)
+
+review <- read_csv('../input/trip-advisor-hotel-reviews/tripadvisor_hotel_reviews.csv')
+review %>% str()
+
+split <- initial_split(review)
+review_train <- training(split)
+review_test <- testing(split)
+
+review_trainX <- review_train[ ,1]
+review_trainY <- to_categorical(review_train[ ,2])
+
+review_testX <- review_test[ ,1]
+review_testY <- to_categorical(review_test[ ,2])
+
+
+max_words <- 1000
+max_length <- 50
+
+text_vectorization <- layer_text_vectorization(
+  max_tokens = max_words,
+  output_sequence_length = max_length
+)
+
+text_vectorization %>%
+ adapt(review$Review) ##get embendding of all text dat
+
+input <- layer_input(shape = c(1), dtype = "string")
+
+output <- input %>% 
+  text_vectorization() %>% 
+  layer_embedding(input_dim = max_words + 1, output_dim = 20) %>%
+  layer_conv_1d(filter = 16, activation = 'relu', kernel_size = c(3)) %>%
+  layer_global_average_pooling_1d() %>%
+  layer_dropout(0.3) %>%   
+  layer_flatten() %>%
+  layer_dense(units = 64, activation = "relu") %>%
+  layer_dropout(0.3) %>% 
+  layer_dense(units = 6, activation = "softmax")
+
+model <- keras_model(input, output)
+
+model %>% compile(
+  optimizer = 'adam',
+  loss = 'categorical_crossentropy',
+  metrics = list('accuracy')
+)
+
+history <- model %>% fit(
+  review_trainX,
+  review_trainY,
+  epochs = 60,
+  batch_size = 64,
+  validation_split = 0.2,
+  verbose=2
+)
+
+plot(history)
+
+history
+
+model %>%
+evaluate(review_testX, review_testY)
