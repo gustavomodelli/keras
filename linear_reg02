@@ -1,0 +1,68 @@
+library(tidyverse)
+library(tidymodels)
+library(keras)
+library(janitor)
+
+##Load csv
+boston <- read_csv('data.csv')
+boston %>% str()
+
+boston <- boston %>% clean_names()
+boston <- boston %>% 
+  mutate(chas = factor(chas))
+
+##medv
+ggplot(boston, aes(medv))+
+  geom_histogram(fill = 'red')
+
+##split data
+split <- initial_split(boston, strata = 'medv')
+boston_train <- training(split)
+boston_test <- testing(split)
+
+
+##recipe to preprocess --------------
+
+rec <- recipe(medv ~ . , data = boston_train) %>% 
+  step_medianimpute(all_numeric()) %>% 
+  step_BoxCox(all_numeric(), -medv) %>% 
+  step_dummy(all_nominal()) %>% 
+  step_normalize(all_predictors())
+
+
+boston_trainX <- rec %>% prep() %>% juice(composition = 'matrix', all_predictors())
+boston_trainY <- rec %>% prep() %>% juice(composition = 'matrix', all_outcomes())
+
+boston_testX <- rec %>% prep() %>% bake(composition = 'matrix', all_predictors(), new_data = boston_test)
+boston_testY <- rec %>% prep() %>% bake(composition = 'matrix', all_outcomes(), new_data = boston_test)
+
+
+## keras model
+
+model <- keras_model_sequential() %>% 
+  layer_dense(units = 124, activation = 'relu', input_shape = c(13)) %>% 
+  layer_dropout(rate = 0.3) %>% 
+  layer_dense(units = 64, activation = 'relu') %>% 
+  layer_dropout(rate=0.3) %>% 
+  layer_dense(units = 32, activation = 'relu') %>% 
+  layer_dropout(rate=0.3) %>% 
+  layer_dense(units = 1)
+
+model %>% 
+  compile(
+    loss = "mse",
+    optimizer = optimizer_rmsprop(),
+    metrics = list("mean_absolute_error")
+  )
+
+history <- model %>% fit(
+  x = boston_trainX,
+  y = boston_trainY,
+  epochs = 80,
+  validation_split = 0.2,
+  verbose = 1
+)
+
+
+model %>% 
+  evaluate(boston_testX, boston_testY)
