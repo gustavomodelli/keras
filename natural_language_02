@@ -5,11 +5,6 @@
 
 ## https://www.r-bloggers.com/2019/01/how-to-prepare-data-for-nlp-text-classification-with-keras-and-tensorflow/
 
-library(tidyverse) # metapackage of all tidyverse packages
-library(recipes)
-library(rsample)
-library(keras)
-library(caret)
 
 
 women <- read_csv('../input/womens-ecommerce-clothing-reviews/Womens Clothing E-Commerce Reviews.csv')
@@ -52,8 +47,14 @@ x_train <- text_sequences %>%
   pad_sequences(maxlen = maxlen)
 dim(x_train)
 
-y_train <- women$Liked
-length(y_train)
+partition <- createDataPartition(women$Liked, p = 0.8, list = FALSE)
+train_x <- x_train[partition, ]
+train_y <- women[partition, ]
+train_y <- train_y$Liked
+
+test_x <- x_train[-partition, ]
+test_y <- women[-partition, ]
+test_y <- test_y$Liked
 
 model <- keras_model_sequential() %>% 
   layer_embedding(max_features, embedding_dims, input_length = maxlen) %>%
@@ -75,8 +76,8 @@ model <- keras_model_sequential() %>%
 
 hist <- model %>%
   fit(
-    x_train,
-    y_train,
+    train_x,
+    train_y,
     batch_size = batch_size,
     epochs = 30,
     validation_split = 0.3
@@ -85,3 +86,6 @@ hist <- model %>%
 hist
 
 plot(hist)
+
+model %>%
+ evaluate(test_x, test_y)
