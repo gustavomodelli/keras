@@ -1,0 +1,87 @@
+# This R environment comes with many helpful analytics packages installed
+# It is defined by the kaggle/rstats Docker image: https://github.com/kaggle/docker-rstats
+# For example, here's a helpful package to load
+
+
+## https://www.r-bloggers.com/2019/01/how-to-prepare-data-for-nlp-text-classification-with-keras-and-tensorflow/
+
+library(tidyverse) # metapackage of all tidyverse packages
+library(recipes)
+library(rsample)
+library(keras)
+library(caret)
+
+
+women <- read_csv('../input/womens-ecommerce-clothing-reviews/Womens Clothing E-Commerce Reviews.csv')
+
+women <- women %>% 
+mutate(Liked = ifelse(Rating == 5, 1, 0),
+         text = paste(Title, `Review Text`),
+         text = gsub("NA", "", text))
+
+women %>% head()
+
+**Tokenization**
+
+text <- women$text
+
+max_features <- 1000
+tokenizer <- text_tokenizer(num_words = max_features)
+
+tokenizer %>%
+  fit_text_tokenizer(text)
+
+tokenizer$document_count
+
+tokenizer$word_index %>% head()
+
+text_sequences <- texts_to_sequences(tokenizer, text)
+
+text_sequences %>% head()
+
+# Set parameters:
+maxlen <- 100
+batch_size <- 32
+embedding_dims <- 50
+filters <- 64
+kernel_size <- 3
+hidden_dims <- 50
+epochs <- 5
+
+x_train <- text_sequences %>%
+  pad_sequences(maxlen = maxlen)
+dim(x_train)
+
+y_train <- women$Liked
+length(y_train)
+
+model <- keras_model_sequential() %>% 
+  layer_embedding(max_features, embedding_dims, input_length = maxlen) %>%
+  layer_dropout(0.2) %>%
+  layer_conv_1d(
+    filters, kernel_size, 
+    padding = "valid", activation = "relu", strides = 1
+  ) %>%
+  layer_global_max_pooling_1d() %>%
+  layer_dense(hidden_dims) %>%
+  layer_dropout(0.2) %>%
+  layer_activation("relu") %>%
+  layer_dense(1) %>%
+  layer_activation("sigmoid") %>% compile(
+  loss = "binary_crossentropy",
+  optimizer = "adam",
+  metrics = "accuracy"
+)
+
+hist <- model %>%
+  fit(
+    x_train,
+    y_train,
+    batch_size = batch_size,
+    epochs = 30,
+    validation_split = 0.3
+  )
+
+hist
+
+plot(hist)
