@@ -1,0 +1,150 @@
+
+# This R environment comes with many helpful analytics packages installed
+# It is defined by the kaggle/rstats Docker image: https://github.com/kaggle/docker-rstats
+# For example, here's a helpful package to load
+​
+library(tidyverse) # metapackage of all tidyverse packages
+library(recipes)
+library(rsample)
+library(keras)
+── Attaching packages ─────────────────────────────────────── tidyverse 1.3.0 ──
+
+✔ ggplot2 3.3.2     ✔ purrr   0.3.4
+✔ tibble  3.0.4     ✔ dplyr   1.0.2
+✔ tidyr   1.1.2     ✔ stringr 1.4.0
+✔ readr   1.4.0     ✔ forcats 0.5.0
+
+── Conflicts ────────────────────────────────────────── tidyverse_conflicts() ──
+✖ dplyr::filter() masks stats::filter()
+✖ dplyr::lag()    masks stats::lag()
+
+
+Attaching package: ‘recipes’
+
+
+The following object is masked from ‘package:stringr’:
+
+    fixed
+
+
+The following object is masked from ‘package:stats’:
+
+    step
+
+
+
+more_vert
+##Target
+aug %>% 
+  mutate(
+    target = factor(target)
+  ) %>% 
+  ggplot(aes(target, fill = target))+
+  geom_bar()
+
+
+
+##city development index
+ggplot(aug, aes(city_development_index, fill = as.factor(target)))+
+  geom_density(alpha = 0.5)
+
+aug %>% 
+  group_by(company_size) %>% 
+  count(target) %>% 
+  ggplot(aes(reorder(company_size, n), n, fill = target))+
+  geom_col()+
+  coord_flip()
+
+
+more_vert
+aug %>% 
+  group_by(enrolled_university) %>% 
+  count(target) %>% 
+  ggplot(aes(reorder(enrolled_university, n), n, fill = target))+
+  geom_col()+
+  coord_flip()
+
+
+##split
+set.seed(123)
+split <- initial_split(aug, strata = 'target')
+aug_train <- training(split)
+aug_test <- testing(split)
+
+
+
+## recipe
+rec_lasso <- recipe(target ~ . , data = aug_train) %>% 
+  step_rm(enrollee_id) %>% 
+  step_BoxCox(all_numeric()) %>% 
+  step_unknown(all_nominal()) %>% 
+  step_other(all_nominal(), threshold = 0.05) %>% 
+  step_dummy(all_nominal(), one_hot = TRUE) %>% 
+  step_normalize(all_predictors()) %>% 
+  step_zv(all_predictors()) 
+
+
+aug_trainX <- rec_lasso %>% prep() %>% juice(all_predictors(), composition = 'matrix')
+
+dim(aug_trainX)
+dim(aug_trainY)
+
+
+more_vert
+aug_testX <- rec_lasso %>% prep() %>% bake(all_predictors(), composition = 'matrix', new_data = aug_test)
+aug_testY <- rec_lasso %>% prep() %>% bake(all_outcomes(), composition = 'matrix', new_data = aug_test)
+
+
+model <- keras_model_sequential() %>%
+ layer_dense(units = 128, activation = 'relu', input_shape = c(51)) %>%
+ layer_dropout(rate = 0.4) %>%
+ layer_dense(units = 68, activation = 'relu') %>%
+ layer_dropout(rate = 0.3) %>%
+ layer_dense(units = 32, activation = 'relu') %>%
+ layer_dropout(rate = 0.3) %>%
+ layer_dense(units = 1, activation ='sigmoid')
+
+
+more_vert
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+
+
+
+more_vert
+tensorboard("my_log_dir")
+
+
+
+callbacks = list(
+    callback_tensorboard(
+log_dir = "my_log_dir",
+        histogram_freq = 1,
+embeddings_freq = 1,)
+)
+
+
+
+history <- model %>% fit(
+  x = aug_trainX, ##matrix
+  y = aug_trainY,  ## a vector
+  epoch = 100,
+  batch = 32,
+  class_weight = list("0"=1,"1"=5), ##proportion of target class
+  validation_split = 0.2,
+  callbacks = callbacks
+)
+
+
+model %>%
+ evaluate(aug_testX, aug_testY)
+loss0.625727832317352accuracy0.742326140403748
+
+
+predito <- model %>% predict_classes(aug_testX)
+
+predito, aug_testY
+table(predito, aug_testY)
