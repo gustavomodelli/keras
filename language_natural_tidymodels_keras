@@ -1,0 +1,92 @@
+library(tidyverse)
+library(tidymodels)
+library(keras)
+library(textrecipes)
+library(tidytext)
+library(caret)
+
+## data
+dis <- read_csv('train_disaster.csv')
+
+
+## Plot
+theme_set(theme_bw())
+
+
+dis %>% 
+  unnest_tokens(word, text) %>% 
+  filter(!word %in% stop_words$word) %>% 
+  group_by(word) %>% 
+  summarise(n = n(), target = mean(target)) %>% 
+  arrange(desc(n))
+
+## split
+set.seed(123)
+split <- initial_split(dis, prop = 0.80)
+res_train <- training(split)
+res_test <- testing(split)
+
+
+##recipe
+res <- recipe(target ~ text, data = res_train) %>% 
+  step_mutate(text = str_remove_all(text , pattern = 'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')) %>% 
+  step_tokenize(text) %>% 
+  step_tokenfilter(text, max_tokens = 1e3) %>% 
+  step_sequence_onehot(text, sequence_length = 150)
+
+## matrix
+x_train <- res %>% prep() %>% bake(new_data = res_train, all_predictors(), composition = 'matrix')
+y_train <- res_train$target
+
+
+x_test <- res %>% prep() %>% bake(new_data = res_test, all_predictors(), composition = 'matrix')
+y_test <- res_test$target
+
+
+## model
+
+model <- keras_model_sequential() %>%
+  layer_embedding(input_dim = 1e3 + 1, output_dim = 16,
+                  input_length = 150) %>%
+  layer_conv_1d(filter = 32, kernel_size = 5, activation = "relu") %>%
+  layer_max_pooling_1d(pool_size = 2) %>%
+  layer_conv_1d(filter = 64, kernel_size = 3, activation = "relu") %>%
+  layer_global_max_pooling_1d() %>%
+  layer_dense(units = 64, activation = "relu") %>%
+  layer_dense(units = 1, activation = "sigmoid")
+
+
+model %>% compile(
+  optimizer = "adam",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+
+history <- model %>% fit(
+  x = x_train,
+  y = y_train,
+  batch_size = 512,
+  epochs = 60,
+  validation_split = 0.2
+)
+
+
+## Evaluate
+model %>% 
+  evaluate(x_test, y_test)
+
+
+## Test set
+test <- data.frame(
+  target = y_test,
+  .pred_prob = predict(model, x_test)
+) %>% 
+  mutate(.pred_class = ifelse(.pred_prob > 0.5,1,0)) %>% 
+  mutate(across(c(target,.pred_class), factor))
+
+
+table(test$target, test$.pred_class)
+
+confusionMatrix(test$target, test$.pred_class)
+
+
